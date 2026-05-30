@@ -2,60 +2,59 @@ import os
 
 from dotenv import load_dotenv
 
-import requests
+from slack_sdk import WebClient
 
 
 # ==========================================
-# LOAD ENV VARIABLES
+# LOAD ENV
 # ==========================================
 
 load_dotenv()
 
 
 # ==========================================
-# GET WEBHOOK FROM .env
+# SLACK CONFIG
 # ==========================================
 
-WEBHOOK_URL = os.getenv(
-    "SLACK_WEBHOOK_URL"
+SLACK_BOT_TOKEN = os.getenv(
+    "SLACK_BOT_TOKEN"
+)
+
+CHANNEL_NAME = "trading_alerts"
+
+
+client = WebClient(
+    token=SLACK_BOT_TOKEN
 )
 
 
 # ==========================================
-# SEND CHART MESSAGE
+# SEND CHART IMAGE
 # ==========================================
 
-def send_slack_chart_message(
-    message,
-    image_url=None
+def send_chart_to_slack(
+    chart_path,
+    message
 ):
 
-    payload = {
-        "text": message
-    }
+    try:
 
-    if image_url:
+        response = client.files_upload_v2(
 
-        payload["attachments"] = [
-            {
-                "image_url": image_url,
-                "text": "Market Chart"
-            }
-        ]
+            channel=CHANNEL_NAME,
 
-    response = requests.post(
-        WEBHOOK_URL,
-        json=payload
-    )
+            file=chart_path,
 
-    if response.status_code == 200:
+            initial_comment=message
 
-        print(
-            "✅ SLACK IMAGE ALERT SENT"
         )
 
-    else:
+        print(
+            "✅ Chart Sent To Slack"
+        )
+
+    except Exception as e:
 
         print(
-            "❌ FAILED TO SEND SLACK IMAGE"
+            f"❌ Slack Chart Upload Error: {e}"
         )

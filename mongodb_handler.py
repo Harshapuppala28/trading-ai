@@ -1,120 +1,58 @@
+import os
+
+from dotenv import load_dotenv
+
 from pymongo import MongoClient
 
-from datetime import datetime
-from datetime import timedelta
+
+# ==========================================
+# LOAD ENV VARIABLES
+# ==========================================
+
+load_dotenv()
 
 
-client = MongoClient(
-    "mongodb://localhost:27017/"
+# ==========================================
+# MONGODB URI
+# ==========================================
+
+MONGO_URI = os.getenv(
+    "MONGO_URI"
 )
+
+
+# ==========================================
+# CONNECT TO MONGODB ATLAS
+# ==========================================
+
+client = MongoClient(MONGO_URI)
 
 db = client["trading_ai"]
 
-collection = db["patterns"]
+collection = db["trade_history"]
 
 
-def already_exists(
-    pattern_name,
-    timestamp
-):
-
-    current_time = datetime.strptime(
-        timestamp,
-        "%Y-%m-%d %H:%M:%S%z"
-    )
-
-    previous_time = (
-        current_time - timedelta(minutes=30)
-    )
-
-    existing = collection.find_one({
-
-        "pattern": pattern_name,
-
-        "timestamp": {
-
-            "$gte": str(previous_time),
-            "$lte": timestamp
-        }
-    })
-
-    if existing:
-        return True
-
-    return False
+print(
+    "✅ Connected to MongoDB Atlas"
+)
 
 
-def save_pattern(
-    pattern_name,
-    latest,
-    bullish_score,
-    bearish_score,
-    trend_15m,
-    trend_1h,
-    volume_spike,
-    high_volatility
-):
+# ==========================================
+# SAVE PATTERN
+# ==========================================
 
-    timestamp = str(latest.name)
+def save_pattern(data):
 
-    if already_exists(
-        pattern_name,
-        timestamp
-    ):
+    try:
+
+        collection.insert_one(data)
 
         print(
-            f"⚠️ DUPLICATE SKIPPED: {pattern_name}"
+            "✅ Pattern Saved To MongoDB"
         )
 
-        return
+    except Exception as e:
 
-    data = {
-
-        "pattern": pattern_name,
-
-        "price": float(
-            latest['Close']
-        ),
-
-        "rsi": float(
-            latest['RSI']
-        ),
-
-        "ema_9": float(
-            latest['EMA_9']
-        ),
-
-        "ema_21": float(
-            latest['EMA_21']
-        ),
-
-        "atr": float(
-            latest['ATR']
-        ),
-
-        "bullish_score": bullish_score,
-
-        "bearish_score": bearish_score,
-
-        "trend_15m": trend_15m,
-
-        "trend_1h": trend_1h,
-
-        "volume_spike": volume_spike,
-
-        "high_volatility": high_volatility,
-
-        "result": "PENDING",
-
-        "future_price": None,
-
-        "timestamp": timestamp,
-
-        "timeframe": "5m"
-    }
-
-    collection.insert_one(data)
-
-    print(
-        f"✅ SAVED TO MONGODB: {pattern_name}"
-    )
+        print(
+            f"❌ MongoDB Save Error: {e}"
+        )

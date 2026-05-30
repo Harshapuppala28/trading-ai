@@ -1,78 +1,97 @@
-def calculate_bullish_score(
-    double_bottom,
-    bullish_div,
-    support,
-    bullish_engulf,
-    volume_spike,
-    high_volatility,
-    trend_15m,
-    trend_1h
+def calculate_confidence(
+
+    patterns,
+    market_data
+
 ):
 
-    score = 0
+    bullish_score = 0
 
-    if double_bottom:
-        score += 25
-
-    if bullish_div:
-        score += 30
-
-    if support:
-        score += 20
-
-    if bullish_engulf:
-        score += 15
-
-    if volume_spike:
-        score += 15
-
-    if trend_15m == "BULLISH":
-        score += 15
-
-    if trend_1h == "BULLISH":
-        score += 15
-
-    if high_volatility:
-        score -= 10
-
-    return max(min(score, 100), 0)
+    bearish_score = 0
 
 
-def calculate_bearish_score(
-    double_top,
-    bearish_div,
-    resistance,
-    bearish_engulf,
-    volume_spike,
-    high_volatility,
-    trend_15m,
-    trend_1h
-):
+    # ==========================================
+    # PATTERN SCORING
+    # ==========================================
 
-    score = 0
+    for pattern in patterns:
 
-    if double_top:
-        score += 25
+        if (
+            "BULLISH" in pattern
+            or "SUPPORT" in pattern
+        ):
 
-    if bearish_div:
-        score += 30
+            bullish_score += 25
 
-    if resistance:
-        score += 20
+        if (
+            "BEARISH" in pattern
+            or "DOUBLE TOP" in pattern
+        ):
 
-    if bearish_engulf:
-        score += 15
+            bearish_score += 25
 
-    if volume_spike:
-        score += 15
+        if "DOJI" in pattern:
 
-    if trend_15m == "BEARISH":
-        score += 15
+            bullish_score += 5
+            bearish_score += 5
 
-    if trend_1h == "BEARISH":
-        score += 15
 
-    if high_volatility:
-        score -= 10
+    # ==========================================
+    # TREND CONFIRMATION
+    # ==========================================
 
-    return max(min(score, 100), 0)
+    if market_data["trend_15m"] == "BULLISH":
+
+        bullish_score += 15
+
+    else:
+
+        bearish_score += 15
+
+
+    if market_data["trend_1h"] == "BULLISH":
+
+        bullish_score += 15
+
+    else:
+
+        bearish_score += 15
+
+
+    # ==========================================
+    # VOLUME
+    # ==========================================
+
+    if market_data["volume_spike"]:
+
+        bullish_score += 10
+        bearish_score += 10
+
+
+    # ==========================================
+    # VOLATILITY
+    # ==========================================
+
+    if market_data["high_volatility"]:
+
+        bullish_score += 5
+        bearish_score += 5
+
+
+    # LIMIT TO 100
+    bullish_score = min(
+        bullish_score,
+        100
+    )
+
+    bearish_score = min(
+        bearish_score,
+        100
+    )
+    
+    return (
+
+        bullish_score,
+        bearish_score
+
+    )

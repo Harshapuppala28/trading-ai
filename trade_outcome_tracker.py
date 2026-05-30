@@ -1,42 +1,92 @@
-import yfinance as yf
+import os
+import time
 
+from dotenv import load_dotenv
 from pymongo import MongoClient
 
+# ==========================================
+
+# LOAD ENV VARIABLES
+
+# ==========================================
+
+load_dotenv()
+
+# ==========================================
+
+# GET MONGO URI
+
+# ==========================================
+
+MONGO_URI = os.getenv(
+"MONGO_URI"
+)
+
+# ==========================================
+
+# CONNECT TO MONGODB ATLAS
+
+# ==========================================
 
 client = MongoClient(
-    "mongodb://localhost:27017/"
+MONGO_URI
 )
 
 db = client["trading_ai"]
 
-collection = db["patterns"]
+collection = db["trade_history"]
 
-symbol = "GC=F"
+print(
+"✅ Trade Outcome Tracker Connected To MongoDB Atlas"
+)
 
+# ==========================================
+
+# EVALUATE PENDING TRADES
+
+# ==========================================
 
 def evaluate_pending_trades():
 
-    pending_trades = collection.find({
 
-        "result": "PENDING"
-    })
+ print(
+    "\n📊 Evaluating Pending Trades..."
+ )
 
-    ticker = yf.Ticker(symbol)
+try:
 
-    current_price = ticker.history(
-        period="1d",
-        interval="5m"
-    )['Close'].iloc[-1]
+    pending_trades = collection.find(
+        {
+            "result": {
+                "$exists": False
+            }
+        }
+    )
 
     for trade in pending_trades:
 
-        entry_price = trade['price']
+        print(
+            f"🔍 Checking Trade: {trade.get('pattern')}"
+        )
 
-        bullish_score = trade['bullish_score']
+        current_price = trade.get(
+            "future_price",
+            trade.get("price")
+        )
 
-        bearish_score = trade['bearish_score']
+        entry_price = trade.get(
+            "price"
+        )
 
-        trade_id = trade['_id']
+        bullish_score = trade.get(
+            "bullish_score",
+            0
+        )
+
+        bearish_score = trade.get(
+            "bearish_score",
+            0
+        )
 
         result = "LOSS"
 
@@ -54,24 +104,25 @@ def evaluate_pending_trades():
 
         collection.update_one(
 
-            {"_id": trade_id},
+            {
+                "_id": trade["_id"]
+            },
 
             {
-
                 "$set": {
-
-                    "future_price": float(current_price),
-
                     "result": result
                 }
             }
+
         )
 
         print(
-            f"Trade Updated: {result}"
+            f"✅ Trade Updated: {result}"
         )
 
+except Exception as e:
 
-if __name__ == "__main__":
+    print(
+        f"❌ Trade Evaluation Error: {e}"
+    )
 
-    evaluate_pending_trades()

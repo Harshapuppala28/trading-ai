@@ -1,595 +1,475 @@
 import os
 import time
-import pytz
-import pandas as pd
-import yfinance as yf
+import traceback
 
-from datetime import datetime
+import yfinance as yf
 
 from indicators import add_indicators
 
-from mongodb_handler import save_pattern
+from pattern_detector import detect_patterns
+
+from confidence_score import calculate_confidence
+
+from market_strength import analyze_market_strength
+
+from pattern_ranker import rank_patterns
+
+from market_bias import calculate_market_bias
+
+from trade_decision import generate_trade_decision
+
+from risk_manager import calculate_trade_levels
 
 from slack_notifier import (
+
+    send_slack_message,
+
     send_slack_image
+
 )
 
-from confidence_score import (
-    calculate_bullish_score,
-    calculate_bearish_score
-)
-
-from market_strength import (
-    detect_volume_spike,
-    detect_high_volatility
-)
-
-from pattern_detector import (
-
-    detect_double_bottom,
-    detect_double_top,
-
-    detect_bullish_rsi_divergence,
-    detect_bearish_rsi_divergence,
-
-    detect_bullish_engulfing,
-    detect_bearish_engulfing,
-
-    detect_support,
-    detect_resistance,
-
-    detect_shooting_star,
-
-    detect_hammer,
-    detect_doji,
-
-    detect_head_and_shoulders,
-    detect_inverse_head_and_shoulders
-)
+from chart_generator import generate_chart
 
 from trade_outcome_tracker import (
     evaluate_pending_trades
 )
 
-from chart_generator import (
-    generate_chart
+from mongodb_handler import save_pattern
+
+
+# ==========================================
+# ENV VARIABLES
+# ==========================================
+
+SLACK_WEBHOOK_URL = os.getenv(
+    "SLACK_WEBHOOK_URL"
 )
 
-pd.set_option(
-    'display.max_columns',
-    None
-)
-
-symbol = "GC=F"
-
-india = pytz.timezone(
-    'Asia/Kolkata'
+SLACK_BOT_TOKEN = os.getenv(
+    "SLACK_BOT_TOKEN"
 )
 
 
-# ==========================================
-# TREND DETECTION
-# ==========================================
-
-def get_trend(df):
-
-    latest = df.iloc[-1]
-
-    if latest['EMA_9'] > latest['EMA_21']:
-
-        return "BULLISH"
-
-    return "BEARISH"
-
 
 # ==========================================
-# CREATE CHART FOLDER
+# FETCH DATA
 # ==========================================
 
-if not os.path.exists("charts"):
+def fetch_data():
 
-    os.makedirs("charts")
+    df_5m = yf.download(
+
+        tickers="GC=F",
+
+        interval="5m",
+
+        period="1d",
+
+        auto_adjust=True
+
+    )
+
+    df_15m = yf.download(
+
+        tickers="GC=F",
+
+        interval="15m",
+
+        period="5d",
+
+        auto_adjust=True
+
+    )
+
+    df_1h = yf.download(
+
+        tickers="GC=F",
+
+        interval="1h",
+
+        period="1mo",
+
+        auto_adjust=True
+
+    )
+
+    return (
+
+        df_5m,
+        df_15m,
+        df_1h
+
+    )
 
 
 # ==========================================
 # MAIN LOOP
 # ==========================================
-
+last_alert_pattern = None
 while True:
 
-    print("\n===================================")
+    try:
 
-    print("📈 LIVE GOLD PATTERN SCANNER")
+        print("\n===================================")
 
-    print("===================================")
+        print("📈 LIVE GOLD PATTERN SCANNER")
 
-    print(
-        f"\n🕒 India Time: "
-        f"{datetime.now(india)}"
-    )
+        print("===================================\n")
 
-    ticker = yf.Ticker(symbol)
+        # ==========================================
+        # FETCH DATA
+        # ==========================================
 
-    # ==========================================
-    # FETCH DATA
-    # ==========================================
+        df_5m, df_15m, df_1h = fetch_data()
 
-    df_5m = ticker.history(
-        period="1d",
-        interval="5m"
-    )
+        # ==========================================
+        # ADD INDICATORS
+        # ==========================================
 
-    df_15m = ticker.history(
-        period="5d",
-        interval="15m"
-    )
+        df_5m = add_indicators(df_5m)
 
-    df_1h = ticker.history(
-        period="1mo",
-        interval="1h"
-    )
+        df_15m = add_indicators(df_15m)
 
-    # ==========================================
-    # INDICATORS
-    # ==========================================
+        df_1h = add_indicators(df_1h)
 
-    df_5m = add_indicators(df_5m)
+        # ==========================================
+        # DETECT PATTERNS
+        # ==========================================
 
-    df_15m = add_indicators(df_15m)
-
-    df_1h = add_indicators(df_1h)
-
-    latest = df_5m.iloc[-1]
-
-    # ==========================================
-    # TRENDS
-    # ==========================================
-
-    trend_15m = get_trend(df_15m)
-
-    trend_1h = get_trend(df_1h)
-
-    # ==========================================
-    # MARKET CONDITIONS
-    # ==========================================
-
-    volume_spike = detect_volume_spike(df_5m)
-
-    high_volatility = detect_high_volatility(df_5m)
-
-    # ==========================================
-    # PRINT DATA
-    # ==========================================
-
-    print("\n📊 Latest 5m Market Data:\n")
-
-    print(
-        df_5m[
-            [
-                'Open',
-                'High',
-                'Low',
-                'Close',
-                'Volume',
-                'RSI',
-                'ATR',
-                'EMA_9',
-                'EMA_21'
-            ]
-        ].tail()
-    )
-
-    print("\n📈 15m Trend:", trend_15m)
-
-    print("📈 1h Trend:", trend_1h)
-
-    print(
-        "\n📊 Volume Spike:",
-        volume_spike
-    )
-
-    print(
-        "⚡ High Volatility:",
-        high_volatility
-    )
-
-    # ==========================================
-    # PATTERNS
-    # ==========================================
-
-    double_bottom = detect_double_bottom(df_5m)
-
-    double_top = detect_double_top(df_5m)
-
-    bullish_div = detect_bullish_rsi_divergence(df_5m)
-
-    bearish_div = detect_bearish_rsi_divergence(df_5m)
-
-    bullish_engulf = detect_bullish_engulfing(df_5m)
-
-    bearish_engulf = detect_bearish_engulfing(df_5m)
-
-    support = detect_support(df_5m)
-
-    resistance = detect_resistance(df_5m)
-
-    shooting_star = detect_shooting_star(df_5m)
-
-    hammer = detect_hammer(df_5m)
-
-    doji = detect_doji(df_5m)
-
-    head_shoulders = detect_head_and_shoulders(df_5m)
-
-    inverse_head_shoulders = (
-        detect_inverse_head_and_shoulders(df_5m)
-    )
-
-    # ==========================================
-    # PRINT PATTERNS
-    # ==========================================
-
-    print("\n📌 DETECTED PATTERNS:\n")
-
-    pattern_found = False
-
-    if double_bottom:
-
-        print("📈 DOUBLE BOTTOM")
-
-        pattern_found = True
-
-    if double_top:
-
-        print("📉 DOUBLE TOP")
-
-        pattern_found = True
-
-    if bullish_div:
-
-        print("🚀 BULLISH RSI DIVERGENCE")
-
-        pattern_found = True
-
-    if bearish_div:
-
-        print("⚠️ BEARISH RSI DIVERGENCE")
-
-        pattern_found = True
-
-    if bullish_engulf:
-
-        print("🟢 BULLISH ENGULFING")
-
-        pattern_found = True
-
-    if bearish_engulf:
-
-        print("🔴 BEARISH ENGULFING")
-
-        pattern_found = True
-
-    if support:
-
-        print("🟩 SUPPORT ZONE")
-
-        pattern_found = True
-
-    if resistance:
-
-        print("🟥 RESISTANCE ZONE")
-
-        pattern_found = True
-
-    if shooting_star:
-
-        print("⭐ SHOOTING STAR")
-
-        pattern_found = True
-
-    if hammer:
-
-        print("🔨 HAMMER")
-
-        pattern_found = True
-
-    if doji:
-
-        print("⚖️ DOJI")
-
-        pattern_found = True
-
-    if head_shoulders:
-
-        print("👤 HEAD AND SHOULDERS")
-
-        pattern_found = True
-
-    if inverse_head_shoulders:
-
-        print("🔄 INVERSE HEAD AND SHOULDERS")
-
-        pattern_found = True
-
-    if not pattern_found:
-
-        print(
-            "❌ NO MAJOR PATTERNS DETECTED"
+        detected_patterns = detect_patterns(
+            df_5m
         )
 
-    # ==========================================
-    # CONFIDENCE SCORING
-    # ==========================================
+        # ==========================================
+        # RANK PATTERNS
+        # ==========================================
 
-    bullish_score = calculate_bullish_score(
-        double_bottom,
-        bullish_div,
-        support,
-        bullish_engulf,
-        volume_spike,
-        high_volatility,
-        trend_15m,
-        trend_1h
-    )
-
-    bearish_score = calculate_bearish_score(
-        double_top,
-        bearish_div,
-        resistance,
-        bearish_engulf,
-        volume_spike,
-        high_volatility,
-        trend_15m,
-        trend_1h
-    )
-
-    # ==========================================
-    # EXTRA PATTERN BOOSTS
-    # ==========================================
-
-    if hammer:
-
-        bullish_score += 10
-
-    if inverse_head_shoulders:
-
-        bullish_score += 15
-
-    if head_shoulders:
-
-        bearish_score += 15
-
-    if shooting_star:
-
-        bearish_score += 10
-
-    if doji:
-
-        bullish_score += 5
-
-        bearish_score += 5
-
-    bullish_score = min(
-        bullish_score,
-        100
-    )
-
-    bearish_score = min(
-        bearish_score,
-        100
-    )
-
-    print("\n========================")
-
-    print(
-        f"\n🔥 BULLISH CONFIDENCE: "
-        f"{bullish_score}%"
-    )
-
-    print(
-        f"⚠️ BEARISH CONFIDENCE: "
-        f"{bearish_score}%"
-    )
-
-    # ==========================================
-    # ELITE FILTERS
-    # ==========================================
-
-    bullish_allowed = (
-
-        bullish_score >= 70
-
-        and latest['RSI'] < 75
-
-        and trend_15m == "BULLISH"
-
-        and trend_1h == "BULLISH"
-
-        and volume_spike is True
-
-        and (
-            hammer
-            or bullish_div
-            or bullish_engulf
-            or inverse_head_shoulders
-            or double_bottom
-        )
-    )
-
-    bearish_allowed = (
-
-        bearish_score >= 70
-
-        and latest['RSI'] > 25
-
-        and trend_15m == "BEARISH"
-
-        and trend_1h == "BEARISH"
-
-        and volume_spike is True
-
-        and (
-            shooting_star
-            or bearish_div
-            or bearish_engulf
-            or head_shoulders
-            or double_top
-        )
-    )
-
-    # ==========================================
-    # CONTRADICTION FILTER
-    # ==========================================
-
-    contradictory_patterns = (
-
-        (double_bottom and double_top)
-
-        or
-
-        (bullish_engulf and bearish_engulf)
-
-        or
-
-        (head_shoulders and inverse_head_shoulders)
-    )
-
-    if contradictory_patterns:
-
-        print(
-            "\n❌ CONTRADICTORY PATTERNS DETECTED"
+        ranked_patterns = rank_patterns(
+            detected_patterns
         )
 
-        bullish_allowed = False
+        primary_pattern = (
 
-        bearish_allowed = False
+            ranked_patterns[0][0]
 
-    # ==========================================
-    # BULLISH ALERT
-    # ==========================================
+            if ranked_patterns
 
-    if bullish_allowed:
+            else "NONE"
 
-        print(
-            "\n🚀 ELITE HIGH CONFIDENCE BULLISH SETUP"
         )
 
-        timestamp = datetime.now().strftime(
-            "%Y%m%d_%H%M%S"
-        )
+        # ==========================================
+        # MARKET STRENGTH
+        # ==========================================
 
-        chart_file = (
-            f"charts/bullish_{timestamp}.png"
-        )
+        market_data = analyze_market_strength(
 
-        generate_chart(
             df_5m,
-            chart_file
+            df_15m,
+            df_1h
+
         )
 
-        save_pattern(
-            "ELITE HIGH CONFIDENCE BULLISH",
-            latest,
-            bullish_score,
-            bearish_score,
-            trend_15m,
-            trend_1h,
-            volume_spike,
-            high_volatility
+        # ==========================================
+        # CONFIDENCE SCORE
+        # ==========================================
+
+        bullish_score, bearish_score = (
+
+            calculate_confidence(
+
+                detected_patterns,
+
+                market_data
+
+            )
+
         )
 
-        send_slack_image(
+        # ==========================================
+        # MARKET BIAS
+        # ==========================================
 
-            "🚀 ELITE HIGH CONFIDENCE BULLISH SETUP\n\n"
-            f"Bullish Score: {bullish_score}%\n"
-            f"Price: {latest['Close']}\n"
-            f"RSI: {latest['RSI']:.2f}\n"
-            f"ATR: {latest['ATR']:.2f}\n"
-            f"15m Trend: {trend_15m}\n"
-            f"1h Trend: {trend_1h}",
+        market_bias = calculate_market_bias(
 
-            chart_file
+            ranked_patterns,
+
+            market_data
+
         )
 
-    # ==========================================
-    # BEARISH ALERT
-    # ==========================================
+        # ==========================================
+        # TRADE DECISION
+        # ==========================================
 
-    if bearish_allowed:
+        trade_decision = (
+
+            generate_trade_decision(
+
+                market_bias,
+
+                bullish_score,
+
+                bearish_score,
+
+                primary_pattern
+
+            )
+
+        )
+
+        # ==========================================
+        # RISK LEVELS
+        # ==========================================
+
+        trade_levels = (
+
+            calculate_trade_levels(
+
+                df_5m,
+
+                trade_decision['decision']
+
+            )
+
+        )
+
+        # ==========================================
+        # DISPLAY DATA
+        # ==========================================
+
+        print("📊 Latest 5m Market Data:\n")
+
+        print(df_5m.tail())
 
         print(
-            "\n⚠️ ELITE HIGH CONFIDENCE BEARISH SETUP"
+            f"\n📈 15m Trend: {market_data['trend_15m']}"
         )
-
-        timestamp = datetime.now().strftime(
-            "%Y%m%d_%H%M%S"
-        )
-
-        chart_file = (
-            f"charts/bearish_{timestamp}.png"
-        )
-
-        generate_chart(
-            df_5m,
-            chart_file
-        )
-
-        save_pattern(
-            "ELITE HIGH CONFIDENCE BEARISH",
-            latest,
-            bullish_score,
-            bearish_score,
-            trend_15m,
-            trend_1h,
-            volume_spike,
-            high_volatility
-        )
-
-        send_slack_image(
-
-            "⚠️ ELITE HIGH CONFIDENCE BEARISH SETUP\n\n"
-            f"Bearish Score: {bearish_score}%\n"
-            f"Price: {latest['Close']}\n"
-            f"RSI: {latest['RSI']:.2f}\n"
-            f"ATR: {latest['ATR']:.2f}\n"
-            f"15m Trend: {trend_15m}\n"
-            f"1h Trend: {trend_1h}",
-
-            chart_file
-        )
-
-    # ==========================================
-    # NO ELITE SETUP
-    # ==========================================
-
-    if (
-        not bullish_allowed
-        and not bearish_allowed
-    ):
 
         print(
-            "\n❌ NO ELITE HIGH CONFIDENCE SETUP"
+            f"📈 1h Trend: {market_data['trend_1h']}"
         )
 
-    print("\n========================")
+        print(
+            f"\n📊 Volume Spike: {market_data['volume_spike']}"
+        )
 
-    # ==========================================
-    # TRADE EVALUATION
-    # ==========================================
+        print(
+            f"⚡ High Volatility: {market_data['high_volatility']}"
+        )
 
-    print(
-        "\n📊 Evaluating Pending Trades..."
-    )
+        print(
+            f"\n🧠 MARKET BIAS: {market_bias}"
+        )
 
-    evaluate_pending_trades()
+        print(
 
-    # ==========================================
-    # WAIT
-    # ==========================================
+            f"\n🎯 TRADE DECISION: "
 
-    print(
-        "\n⏳ Waiting 5 minutes "
-        "for next candle...\n"
-    )
+            f"{trade_decision['decision']}"
 
-    time.sleep(300)
+        )
+
+        print(
+
+            f"📊 Signal Strength: "
+
+            f"{trade_decision['strength']}"
+
+        )
+
+        print(
+
+            f"\n💰 Entry: "
+
+            f"{trade_levels['entry']}"
+
+        )
+
+        print(
+
+            f"🛑 Stop Loss: "
+
+            f"{trade_levels['stop_loss']}"
+
+        )
+
+        print(
+
+            f"🎯 Take Profit: "
+
+            f"{trade_levels['take_profit']}"
+
+        )
+
+        print(
+
+            f"⚖️ Risk/Reward: "
+
+            f"{trade_levels['risk_reward']}"
+
+        )
+
+        print("\n🎯 PRIMARY PATTERN:\n")
+
+        print(primary_pattern)
+
+        print("\n📌 ALL DETECTED PATTERNS:\n")
+
+        for pattern, score in ranked_patterns:
+
+            print(
+                f"{pattern} | Score: {score}"
+            )
+
+        print("\n========================\n")
+
+        print(
+            f"🔥 BULLISH CONFIDENCE: {bullish_score}%"
+        )
+
+        print(
+            f"⚠️ BEARISH CONFIDENCE: {bearish_score}%"
+        )
+
+        # ==========================================
+        # ALERTS
+        # ==========================================
+
+        if (
+
+              (bullish_score >= 80 or bearish_score >= 80)
+
+               and
+
+               primary_pattern != last_alert_pattern
+
+        ):
+
+            latest_price = float(
+
+                df_5m["Close"]
+
+                .squeeze()
+
+                .iloc[-1]
+
+            )
+
+            alert_message = f"""
+🚨 ELITE TRADING SETUP DETECTED 🚨
+
+🎯 PRIMARY PATTERN:
+{primary_pattern}
+
+📌 Ranked Patterns:
+{chr(10).join([f"{p} ({s})" for p, s in ranked_patterns])}
+
+🧠 Market Bias:
+{market_bias}
+
+🎯 Trade Decision:
+{trade_decision['decision']}
+
+📊 Signal Strength:
+{trade_decision['strength']}
+
+💰 Entry:
+{trade_levels['entry']}
+
+🛑 Stop Loss:
+{trade_levels['stop_loss']}
+
+🎯 Take Profit:
+{trade_levels['take_profit']}
+
+⚖️ Risk/Reward:
+{trade_levels['risk_reward']}
+
+🔥 Bullish Confidence:
+{bullish_score}%
+
+⚠️ Bearish Confidence:
+{bearish_score}%
+
+💰 Current Price:
+{latest_price}
+"""
+
+            chart_path = generate_chart(
+
+                df_5m,
+                primary_pattern
+
+            )
+
+            send_slack_message(
+
+                SLACK_WEBHOOK_URL,
+
+                alert_message
+
+            )
+
+            
+            send_slack_image(
+
+                 SLACK_BOT_TOKEN,
+
+                chart_path
+
+            )
+            last_alert_pattern = primary_pattern
+
+
+            print(
+                f"\n📸 Chart Saved: {chart_path}"
+            )
+
+            save_pattern({
+
+                "primary_pattern": primary_pattern,
+
+                "ranked_patterns": ranked_patterns,
+
+                "bullish_score": bullish_score,
+
+                "bearish_score": bearish_score,
+
+                "market_bias": market_bias,
+
+                "trade_decision": trade_decision,
+
+                "trade_levels": trade_levels,
+
+                "price": latest_price,
+
+                "trend_15m": market_data["trend_15m"],
+
+                "trend_1h": market_data["trend_1h"]
+
+            })
+
+        else:
+
+            print(
+                "\n❌ NO ELITE HIGH CONFIDENCE SETUP"
+            )
+
+        print("\n========================\n")
+
+        evaluate_pending_trades()
+
+        print(
+            "\n⏳ Waiting 5 minutes for next candle..."
+        )
+
+        time.sleep(300)
+
+    except Exception:
+
+        print("\n❌ FULL ERROR TRACE:\n")
+
+        traceback.print_exc()
+
+        time.sleep(30)

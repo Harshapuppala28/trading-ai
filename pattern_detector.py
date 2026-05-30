@@ -1,387 +1,1077 @@
-from scipy.signal import find_peaks
+import pandas as pd
 
-import numpy as np
+from swing_detector import detect_swings
+
+from breakout_confirmation import (
+    breakout_confirmed
+)
 
 
 # ==========================================
-# DOUBLE BOTTOM
+# DETECT SWING HIGHS
 # ==========================================
 
-def detect_double_bottom(df):
+def is_swing_high(high_series, i):
 
-    prices = df['Close'].values
+    return (
 
-    inverted = -prices
+        high_series.iloc[i]
 
-    valleys, _ = find_peaks(
-        inverted,
-        distance=10
+        >
+
+        high_series.iloc[i - 1]
+
+        and
+
+        high_series.iloc[i]
+
+        >
+
+        high_series.iloc[i + 1]
+
     )
 
-    if len(valleys) < 2:
-
-        return False
-
-    v1 = valleys[-1]
-
-    v2 = valleys[-2]
-
-    p1 = prices[v1]
-
-    p2 = prices[v2]
-
-    similarity = abs(p1 - p2) / p1
-
-    if similarity < 0.005:
-
-        return True
-
-    return False
-
 
 # ==========================================
-# DOUBLE TOP
+# DETECT SWING LOWS
 # ==========================================
 
-def detect_double_top(df):
+def is_swing_low(low_series, i):
 
-    prices = df['Close'].values
+    return (
 
-    peaks, _ = find_peaks(
-        prices,
-        distance=10
+        low_series.iloc[i]
+
+        <
+
+        low_series.iloc[i - 1]
+
+        and
+
+        low_series.iloc[i]
+
+        <
+
+        low_series.iloc[i + 1]
+
     )
 
-    if len(peaks) < 2:
-
-        return False
-
-    p1 = peaks[-1]
-
-    p2 = peaks[-2]
-
-    price1 = prices[p1]
-
-    price2 = prices[p2]
-
-    similarity = abs(
-        price1 - price2
-    ) / price1
-
-    if similarity < 0.005:
-
-        return True
-
-    return False
-
 
 # ==========================================
-# BULLISH RSI DIVERGENCE
+# MAIN PATTERN DETECTOR
 # ==========================================
 
-def detect_bullish_rsi_divergence(df):
+def detect_patterns(df):
 
-    recent = df.tail(10)
+    patterns = []
 
-    price1 = recent['Close'].iloc[-5]
+    # ==========================================
+    # FIX MULTI INDEX
+    # ==========================================
 
-    price2 = recent['Close'].iloc[-1]
+    close_series = df["Close"].squeeze()
 
-    rsi1 = recent['RSI'].iloc[-5]
+    open_series = df["Open"].squeeze()
 
-    rsi2 = recent['RSI'].iloc[-1]
+    high_series = df["High"].squeeze()
 
-    if (
-        price2 < price1
-        and rsi2 > rsi1
-    ):
+    low_series = df["Low"].squeeze()
 
-        return True
+    rsi_series = df["RSI"].squeeze()
 
-    return False
+    # ==========================================
+    # LATEST VALUES
+    # ==========================================
 
+    latest_close = float(
+        close_series.iloc[-1]
+    )
 
-# ==========================================
-# BEARISH RSI DIVERGENCE
-# ==========================================
+    latest_open = float(
+        open_series.iloc[-1]
+    )
 
-def detect_bearish_rsi_divergence(df):
+    latest_high = float(
+        high_series.iloc[-1]
+    )
 
-    recent = df.tail(10)
+    latest_low = float(
+        low_series.iloc[-1]
+    )
 
-    price1 = recent['Close'].iloc[-5]
+    latest_rsi = float(
+        rsi_series.iloc[-1]
+    )
 
-    price2 = recent['Close'].iloc[-1]
+    # ==========================================
+    # SWING DETECTION
+    # ==========================================
 
-    rsi1 = recent['RSI'].iloc[-5]
+    swing_highs, swing_lows = (
+        detect_swings(df)
+    )
 
-    rsi2 = recent['RSI'].iloc[-1]
+    # ==========================================
+    # CANDLE DETAILS
+    # ==========================================
 
-    if (
-        price2 > price1
-        and rsi2 < rsi1
-    ):
+    candle_size = abs(
+        latest_close - latest_open
+    )
 
-        return True
-
-    return False
-
-
-# ==========================================
-# BULLISH ENGULFING
-# ==========================================
-
-def detect_bullish_engulfing(df):
-
-    latest = df.iloc[-1]
-
-    previous = df.iloc[-2]
-
-    if (
-        previous['Close'] < previous['Open']
-        and latest['Close'] > latest['Open']
-        and latest['Open'] < previous['Close']
-        and latest['Close'] > previous['Open']
-    ):
-
-        return True
-
-    return False
-
-
-# ==========================================
-# BEARISH ENGULFING
-# ==========================================
-
-def detect_bearish_engulfing(df):
-
-    latest = df.iloc[-1]
-
-    previous = df.iloc[-2]
-
-    if (
-        previous['Close'] > previous['Open']
-        and latest['Close'] < latest['Open']
-        and latest['Open'] > previous['Close']
-        and latest['Close'] < previous['Open']
-    ):
-
-        return True
-
-    return False
-
-
-# ==========================================
-# SUPPORT
-# ==========================================
-
-def detect_support(df):
-
-    latest = df.iloc[-1]
-
-    recent_low = df['Low'].tail(20).min()
-
-    distance = abs(
-        latest['Close'] - recent_low
-    ) / latest['Close']
-
-    if distance < 0.003:
-
-        return True
-
-    return False
-
-
-# ==========================================
-# RESISTANCE
-# ==========================================
-
-def detect_resistance(df):
-
-    latest = df.iloc[-1]
-
-    recent_high = df['High'].tail(20).max()
-
-    distance = abs(
-        latest['Close'] - recent_high
-    ) / latest['Close']
-
-    if distance < 0.003:
-
-        return True
-
-    return False
-
-
-# ==========================================
-# SHOOTING STAR
-# ==========================================
-
-def detect_shooting_star(df):
-
-    latest = df.iloc[-1]
-
-    body = abs(
-        latest['Close'] - latest['Open']
+    wick_size = (
+        latest_high - latest_low
     )
 
     upper_wick = (
-        latest['High']
-        - max(
-            latest['Close'],
-            latest['Open']
-        )
+        latest_high -
+        max(latest_close, latest_open)
     )
 
     lower_wick = (
-        min(
-            latest['Close'],
-            latest['Open']
+        min(latest_close, latest_open)
+        - latest_low
+    )
+
+    # ==========================================
+    # DOJI
+    # ==========================================
+
+    if candle_size < (wick_size * 0.1):
+
+        patterns.append(
+            "⚖️ DOJI"
         )
-        - latest['Low']
-    )
+
+    # ==========================================
+    # HAMMER
+    # ==========================================
 
     if (
-        upper_wick > body * 2
-        and lower_wick < body
-        and latest['Close'] < latest['Open']
+
+        lower_wick >
+        candle_size * 2
+
+        and
+
+        upper_wick < candle_size
+
     ):
 
-        return True
-
-    return False
-
-
-# ==========================================
-# HAMMER
-# ==========================================
-
-def detect_hammer(df):
-
-    latest = df.iloc[-1]
-
-    body = abs(
-        latest['Close'] - latest['Open']
-    )
-
-    lower_wick = (
-        min(
-            latest['Close'],
-            latest['Open']
+        patterns.append(
+            "🔨 HAMMER"
         )
-        - latest['Low']
-    )
 
-    upper_wick = (
-        latest['High']
-        - max(
-            latest['Close'],
-            latest['Open']
+    # ==========================================
+    # SHOOTING STAR
+    # ==========================================
+
+    if (
+
+        upper_wick >
+        candle_size * 2
+
+        and
+
+        lower_wick < candle_size
+
+    ):
+
+        patterns.append(
+            "🌠 SHOOTING STAR"
         )
+
+    # ==========================================
+    # RSI
+    # ==========================================
+
+    if latest_rsi < 30:
+
+        patterns.append(
+            "🚀 BULLISH RSI DIVERGENCE"
+        )
+
+    if latest_rsi > 70:
+
+        patterns.append(
+            "📉 BEARISH RSI DIVERGENCE"
+        )
+
+    # ==========================================
+    # DOUBLE TOP
+    # ==========================================
+
+    if len(swing_highs) >= 2:
+
+        top1 = swing_highs[-1][1]
+
+        top2 = swing_highs[-2][1]
+
+        if abs(top1 - top2) < 5:
+
+            patterns.append(
+                "📉 DOUBLE TOP"
+            )
+
+    # ==========================================
+    # DOUBLE BOTTOM
+    # ==========================================
+
+    if len(swing_lows) >= 2:
+
+        low1 = swing_lows[-2][1]
+
+        low2 = swing_lows[-1][1]
+
+        difference = abs(
+            low1 - low2
+        )
+
+        if difference < 3:
+
+            middle_high = float(
+
+                df["High"]
+                .squeeze()
+                .iloc[
+                    swing_lows[-2][0]:
+                    swing_lows[-1][0]
+                ]
+                .max()
+
+            )
+
+            if breakout_confirmed(
+
+                df,
+                middle_high,
+                "bullish"
+
+            ):
+
+                patterns.append(
+                    "📈 DOUBLE BOTTOM"
+                )
+
+    # ==========================================
+    # HEAD AND SHOULDERS
+    # ==========================================
+
+    if len(swing_highs) >= 3:
+
+        left_shoulder = swing_highs[-3][1]
+
+        head = swing_highs[-2][1]
+
+        right_shoulder = swing_highs[-1][1]
+
+        shoulder_difference = abs(
+            left_shoulder -
+            right_shoulder
+        )
+
+        if shoulder_difference < 5:
+
+            if (
+
+                head > left_shoulder
+
+                and
+
+                head > right_shoulder
+
+            ):
+
+                neckline = float(
+
+                    df["Low"]
+                    .squeeze()
+                    .iloc[
+                        swing_highs[-3][0]:
+                        swing_highs[-1][0]
+                    ]
+                    .min()
+
+                )
+
+                if breakout_confirmed(
+
+                    df,
+                    neckline,
+                    "bearish"
+
+                ):
+
+                    patterns.append(
+                        "📉 HEAD AND SHOULDERS"
+                    )
+
+    # ==========================================
+    # INVERSE HEAD AND SHOULDERS
+    # ==========================================
+
+    if len(swing_lows) >= 3:
+
+        left_shoulder = swing_lows[-3][1]
+
+        head = swing_lows[-2][1]
+
+        right_shoulder = swing_lows[-1][1]
+
+        if (
+
+            head < left_shoulder
+
+            and
+
+            head < right_shoulder
+
+            and
+
+            abs(
+                left_shoulder -
+                right_shoulder
+            ) < 5
+
+        ):
+
+            patterns.append(
+                "🔄 INVERSE HEAD AND SHOULDERS"
+            )
+
+    # ==========================================
+    # SUPPORT ZONE
+    # ==========================================
+
+    support = float(
+
+        low_series
+        .tail(20)
+        .min()
+
     )
+
+    if latest_close <= support * 1.01:
+
+        patterns.append(
+            "🟩 SUPPORT ZONE"
+        )
+
+    # ==========================================
+    # ASCENDING TRIANGLE
+    # ==========================================
 
     if (
-        lower_wick > body * 2
-        and upper_wick < body
+
+        len(swing_highs) >= 2
+
+        and
+
+        len(swing_lows) >= 2
+
     ):
 
-        return True
+        high1 = swing_highs[-2][1]
 
-    return False
+        high2 = swing_highs[-1][1]
 
+        low1 = swing_lows[-2][1]
 
-# ==========================================
-# DOJI
-# ==========================================
+        low2 = swing_lows[-1][1]
 
-def detect_doji(df):
+        resistance_difference = abs(
+            high1 - high2
+        )
 
-    latest = df.iloc[-1]
+        if (
 
-    body = abs(
-        latest['Close'] - latest['Open']
-    )
+            resistance_difference < 3
 
-    candle_range = (
-        latest['High'] - latest['Low']
-    )
+            and
 
-    if candle_range == 0:
+            low2 > low1
 
-        return False
+        ):
 
-    if body / candle_range < 0.1:
+            breakout_level = float(
+                max(high1, high2)
+            )
 
-        return True
+            if breakout_confirmed(
 
-    return False
+                df,
+                breakout_level,
+                "bullish"
 
+            ):
 
-# ==========================================
-# HEAD AND SHOULDERS
-# ==========================================
+                patterns.append(
+                    "📈 ASCENDING TRIANGLE"
+                )
 
-def detect_head_and_shoulders(df):
-
-    prices = df['Close'].values
-
-    peaks, _ = find_peaks(
-        prices,
-        distance=5
-    )
-
-    if len(peaks) < 3:
-
-        return False
-
-    p1 = prices[peaks[-3]]
-
-    p2 = prices[peaks[-2]]
-
-    p3 = prices[peaks[-1]]
+    # ==========================================
+    # DESCENDING TRIANGLE
+    # ==========================================
 
     if (
-        p2 > p1
-        and p2 > p3
-        and abs(p1 - p3) / p1 < 0.02
+
+        len(swing_highs) >= 2
+
+        and
+
+        len(swing_lows) >= 2
+
     ):
 
-        return True
+        high1 = swing_highs[-2][1]
 
-    return False
+        high2 = swing_highs[-1][1]
 
+        low1 = swing_lows[-2][1]
 
-# ==========================================
-# INVERSE HEAD AND SHOULDERS
-# ==========================================
+        low2 = swing_lows[-1][1]
 
-def detect_inverse_head_and_shoulders(df):
+        support_difference = abs(
+            low1 - low2
+        )
 
-    prices = df['Close'].values
+        if (
 
-    inverted = -prices
+            support_difference < 3
 
-    valleys, _ = find_peaks(
-        inverted,
-        distance=5
-    )
+            and
 
-    if len(valleys) < 3:
+            high2 < high1
 
-        return False
+        ):
 
-    v1 = prices[valleys[-3]]
+            breakout_level = float(
+                min(low1, low2)
+            )
 
-    v2 = prices[valleys[-2]]
+            if breakout_confirmed(
 
-    v3 = prices[valleys[-1]]
+                df,
+                breakout_level,
+                "bearish"
+
+            ):
+
+                patterns.append(
+                    "🔻 DESCENDING TRIANGLE"
+                )
+
+    # ==========================================
+    # SYMMETRICAL TRIANGLE
+    # ==========================================
 
     if (
-        v2 < v1
-        and v2 < v3
-        and abs(v1 - v3) / v1 < 0.02
+
+        len(swing_highs) >= 2
+
+        and
+
+        len(swing_lows) >= 2
+
     ):
 
-        return True
+        high1 = swing_highs[-2][1]
 
-    return False
+        high2 = swing_highs[-1][1]
+
+        low1 = swing_lows[-2][1]
+
+        low2 = swing_lows[-1][1]
+
+        if (
+
+            high2 < high1
+
+            and
+
+            low2 > low1
+
+        ):
+
+            if latest_close > high2:
+
+                if breakout_confirmed(
+
+                    df,
+                    high2,
+                    "bullish"
+
+                ):
+
+                    patterns.append(
+                        "🔺 SYMMETRICAL TRIANGLE BULLISH"
+                    )
+
+            elif latest_close < low2:
+
+                if breakout_confirmed(
+
+                    df,
+                    low2,
+                    "bearish"
+
+                ):
+
+                    patterns.append(
+                        "🔻 SYMMETRICAL TRIANGLE BEARISH"
+                    )
+
+    # ==========================================
+    # RISING WEDGE
+    # ==========================================
+
+    if (
+
+        len(swing_highs) >= 2
+
+        and
+
+        len(swing_lows) >= 2
+
+    ):
+
+        high1 = swing_highs[-2][1]
+
+        high2 = swing_highs[-1][1]
+
+        low1 = swing_lows[-2][1]
+
+        low2 = swing_lows[-1][1]
+
+        if (
+
+            high2 > high1
+
+            and
+
+            low2 > low1
+
+        ):
+
+            high_slope = high2 - high1
+
+            low_slope = low2 - low1
+
+            if low_slope > high_slope:
+
+                breakout_level = float(
+                    min(low1, low2)
+                )
+
+                if breakout_confirmed(
+
+                    df,
+                    breakout_level,
+                    "bearish"
+
+                ):
+
+                    patterns.append(
+                        "📉 RISING WEDGE"
+                    )
+
+    # ==========================================
+    # FALLING WEDGE
+    # ==========================================
+
+    if (
+
+        len(swing_highs) >= 2
+
+        and
+
+        len(swing_lows) >= 2
+
+    ):
+
+        high1 = swing_highs[-2][1]
+
+        high2 = swing_highs[-1][1]
+
+        low1 = swing_lows[-2][1]
+
+        low2 = swing_lows[-1][1]
+
+        if (
+
+            high2 < high1
+
+            and
+
+            low2 < low1
+
+        ):
+
+            high_slope = abs(
+                high2 - high1
+            )
+
+            low_slope = abs(
+                low2 - low1
+            )
+
+            if high_slope > low_slope:
+
+                breakout_level = float(
+                    max(high1, high2)
+                )
+
+                if breakout_confirmed(
+
+                    df,
+                    breakout_level,
+                    "bullish"
+
+                ):
+
+                    patterns.append(
+                        "📈 FALLING WEDGE"
+                    )
+
+    # ==========================================
+    # CUP AND HANDLE
+    # ==========================================
+
+    closes = (
+        close_series
+        .tail(30)
+        .values
+    )
+
+    if len(closes) >= 30:
+
+        left_side = closes[:10]
+
+        bottom_zone = closes[10:20]
+
+        right_side = closes[20:25]
+
+        handle_zone = closes[25:]
+
+        left_avg = sum(left_side) / len(left_side)
+
+        bottom_avg = sum(bottom_zone) / len(bottom_zone)
+
+        right_avg = sum(right_side) / len(right_side)
+
+        handle_avg = sum(handle_zone) / len(handle_zone)
+
+        if (
+
+            bottom_avg < left_avg
+
+            and
+
+            bottom_avg < right_avg
+
+        ):
+
+            if right_avg > bottom_avg:
+
+                if handle_avg < right_avg:
+
+                    if latest_close > right_avg:
+
+                        breakout_level = float(
+                            max(right_side)
+                        )
+
+                        if breakout_confirmed(
+
+                            df,
+                            breakout_level,
+                            "bullish"
+
+                        ):
+
+                            patterns.append(
+                                "☕ CUP AND HANDLE"
+                            )
+
+    # ==========================================
+    # ROUNDING BOTTOM
+    # ==========================================
+
+    closes = (
+        close_series
+        .tail(40)
+        .values
+    )
+
+    if len(closes) >= 40:
+
+        first_part = closes[:10]
+
+        middle_part = closes[10:30]
+
+        last_part = closes[30:]
+
+        first_avg = sum(first_part) / len(first_part)
+
+        middle_avg = sum(middle_part) / len(middle_part)
+
+        last_avg = sum(last_part) / len(last_part)
+
+        if (
+
+            middle_avg < first_avg
+
+            and
+
+            middle_avg < last_avg
+
+        ):
+
+            if last_avg > middle_avg:
+
+                if latest_close > first_avg:
+
+                    patterns.append(
+                        "🌙 ROUNDING BOTTOM"
+                    )
+
+    # ==========================================
+    # LAST 3 CANDLES
+    # ==========================================
+
+    latest = df.tail(3)
+
+    open1 = float(
+        latest["Open"].squeeze().iloc[-3]
+    )
+
+    close1 = float(
+        latest["Close"].squeeze().iloc[-3]
+    )
+
+    open2 = float(
+        latest["Open"].squeeze().iloc[-2]
+    )
+
+    close2 = float(
+        latest["Close"].squeeze().iloc[-2]
+    )
+
+    open3 = float(
+        latest["Open"].squeeze().iloc[-1]
+    )
+
+    close3 = float(
+        latest["Close"].squeeze().iloc[-1]
+    )
+
+    high3 = float(
+        latest["High"].squeeze().iloc[-1]
+    )
+
+    low3 = float(
+        latest["Low"].squeeze().iloc[-1]
+    )
+
+    # ==========================================
+    # ENGULFING
+    # ==========================================
+
+    if (
+
+        close2 < open2
+
+        and
+
+        close3 > open3
+
+        and
+
+        open3 < close2
+
+        and
+
+        close3 > open2
+
+    ):
+
+        patterns.append(
+            "🚀 BULLISH ENGULFING"
+        )
+
+    if (
+
+        close2 > open2
+
+        and
+
+        close3 < open3
+
+        and
+
+        open3 > close2
+
+        and
+
+        close3 < open2
+
+    ):
+
+        patterns.append(
+            "📉 BEARISH ENGULFING"
+        )
+
+    # ==========================================
+    # MORNING STAR
+    # ==========================================
+
+    if (
+
+        close1 < open1
+
+        and
+
+        abs(close2 - open2)
+        < abs(close1 - open1)
+
+        and
+
+        close3 > open3
+
+    ):
+
+        patterns.append(
+            "🌅 MORNING STAR"
+        )
+
+    # ==========================================
+    # EVENING STAR
+    # ==========================================
+
+    if (
+
+        close1 > open1
+
+        and
+
+        abs(close2 - open2)
+        < abs(close1 - open1)
+
+        and
+
+        close3 < open3
+
+    ):
+
+        patterns.append(
+            "🌇 EVENING STAR"
+        )
+
+    # ==========================================
+    # BULL FLAG
+    # ==========================================
+
+    if len(close_series) >= 10:
+
+        recent_move = (
+
+            close_series.iloc[-5]
+            -
+            close_series.iloc[-10]
+
+        )
+
+        pullback = (
+
+            close_series.iloc[-1]
+            -
+            close_series.iloc[-5]
+
+        )
+
+        if (
+
+            recent_move > 15
+
+            and
+
+            pullback < 0
+
+            and
+
+            abs(pullback)
+            < recent_move * 0.5
+
+        ):
+
+            patterns.append(
+                "🚩 BULL FLAG"
+            )
+
+    # ==========================================
+    # BEAR FLAG
+    # ==========================================
+
+    if len(close_series) >= 10:
+
+        recent_move = (
+
+            close_series.iloc[-10]
+            -
+            close_series.iloc[-5]
+
+        )
+
+        pullback = (
+
+            close_series.iloc[-1]
+            -
+            close_series.iloc[-5]
+
+        )
+
+        if (
+
+            recent_move > 15
+
+            and
+
+            pullback > 0
+
+            and
+
+            pullback < recent_move * 0.5
+
+        ):
+
+            patterns.append(
+                "🚩 BEAR FLAG"
+            )
+
+    # ==========================================
+    # PENNANT
+    # ==========================================
+
+    if (
+
+        len(swing_highs) >= 2
+
+        and
+
+        len(swing_lows) >= 2
+
+    ):
+
+        high1 = swing_highs[-2][1]
+
+        high2 = swing_highs[-1][1]
+
+        low1 = swing_lows[-2][1]
+
+        low2 = swing_lows[-1][1]
+
+        if (
+
+            high2 < high1
+
+            and
+
+            low2 > low1
+
+        ):
+
+            patterns.append(
+                "🎯 PENNANT"
+            )
+
+    # ==========================================
+    # RESISTANCE ZONE
+    # ==========================================
+
+    resistance = float(
+
+        high_series
+        .tail(20)
+        .max()
+
+    )
+
+    if latest_close >= resistance * 0.99:
+
+        patterns.append(
+            "🟥 RESISTANCE ZONE"
+        )
+
+    # ==========================================
+    # PRIORITY
+    # ==========================================
+
+    priority_patterns = [
+
+        "📉 HEAD AND SHOULDERS",
+
+        "🔄 INVERSE HEAD AND SHOULDERS",
+
+        "📉 DOUBLE TOP",
+
+        "📈 DOUBLE BOTTOM",
+
+        "📈 ASCENDING TRIANGLE",
+
+        "🔻 DESCENDING TRIANGLE",
+
+        "🔺 SYMMETRICAL TRIANGLE BULLISH",
+
+        "🔻 SYMMETRICAL TRIANGLE BEARISH",
+
+        "📉 RISING WEDGE",
+
+        "📈 FALLING WEDGE",
+
+        "☕ CUP AND HANDLE",
+
+        "🌙 ROUNDING BOTTOM",
+
+        "🚩 BULL FLAG",
+
+        "🚩 BEAR FLAG",
+
+        "🎯 PENNANT"
+
+    ]
+
+    primary_pattern = None
+
+    confirmations = []
+
+    for p in priority_patterns:
+
+        if p in patterns:
+
+            primary_pattern = p
+
+            break
+
+    for p in patterns:
+
+        if p != primary_pattern:
+
+            confirmations.append(p)
+
+    # ==========================================
+    # FINAL OUTPUT
+    # ==========================================
+
+    final_patterns = []
+
+    if primary_pattern:
+
+        final_patterns.append(
+            primary_pattern
+        )
+
+    final_patterns.extend(
+        confirmations
+    )
+
+    return final_patterns

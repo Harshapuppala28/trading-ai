@@ -1,36 +1,58 @@
 import pandas as pd
 
 
-def calculate_rsi(data, period=14):
+def add_indicators(df):
 
-    delta = data['Close'].diff()
+    # EMA
+    df["EMA_9"] = (
+        df["Close"]
+        .ewm(span=9, adjust=False)
+        .mean()
+    )
 
-    gain = delta.clip(lower=0)
+    df["EMA_21"] = (
+        df["Close"]
+        .ewm(span=21, adjust=False)
+        .mean()
+    )
 
-    loss = -delta.clip(upper=0)
+    # RSI
+    delta = df["Close"].diff()
 
-    avg_gain = gain.rolling(period).mean()
+    gain = delta.where(
+        delta > 0,
+        0
+    )
 
-    avg_loss = loss.rolling(period).mean()
+    loss = -delta.where(
+        delta < 0,
+        0
+    )
+
+    avg_gain = gain.rolling(14).mean()
+
+    avg_loss = loss.rolling(14).mean()
 
     rs = avg_gain / avg_loss
 
-    rsi = 100 - (100 / (1 + rs))
+    df["RSI"] = (
+        100 - (100 / (1 + rs))
+    )
 
-    return rsi
-
-
-def calculate_atr(data, period=14):
-
-    high_low = data['High'] - data['Low']
+    # ATR
+    high_low = (
+        df["High"] - df["Low"]
+    )
 
     high_close = (
-        data['High'] - data['Close'].shift()
-    ).abs()
+        (df["High"] - df["Close"].shift())
+        .abs()
+    )
 
     low_close = (
-        data['Low'] - data['Close'].shift()
-    ).abs()
+        (df["Low"] - df["Close"].shift())
+        .abs()
+    )
 
     ranges = pd.concat(
         [
@@ -43,33 +65,13 @@ def calculate_atr(data, period=14):
 
     true_range = ranges.max(axis=1)
 
-    atr = true_range.rolling(period).mean()
-
-    return atr
-
-
-def add_indicators(df):
-
-    df['RSI'] = calculate_rsi(df)
-
-    df['EMA_9'] = (
-        df['Close']
-        .ewm(span=9, adjust=False)
+    df["ATR"] = (
+        true_range
+        .rolling(14)
         .mean()
     )
 
-    df['EMA_21'] = (
-        df['Close']
-        .ewm(span=21, adjust=False)
-        .mean()
-    )
-
-    df['ATR'] = calculate_atr(df)
-
-    df['Volume_MA'] = (
-        df['Volume']
-        .rolling(20)
-        .mean()
-    )
+    # REMOVE NaN ROWS
+    df = df.dropna()
 
     return df
