@@ -1,5 +1,6 @@
 import os
 import time
+import certifi
 
 from dotenv import load_dotenv
 from pymongo import MongoClient
