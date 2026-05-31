@@ -2,6 +2,7 @@
 from flask import Flask
 import threading
 import os
+import subprocess
 
 app = Flask(__name__)
 
@@ -20,9 +21,10 @@ def home():
 # START SCANNER
 # ==========================================
 
-def run_scanner():
-
-    os.system("python data_fetcher.py")
+def run_scanner(): 
+    subprocess.Popen( 
+        ["python", "data_fetcher.py"] 
+    )
 
 
 scanner_thread = threading.Thread(
