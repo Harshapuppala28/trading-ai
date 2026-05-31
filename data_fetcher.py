@@ -101,6 +101,35 @@ def fetch_data():
 
     )
 
+    # ==========================================
+    # EMPTY DATA PROTECTION
+    # ==========================================
+
+    if (
+
+        df_5m.empty
+
+        or
+
+        df_15m.empty
+
+        or
+
+        df_1h.empty
+
+    ):
+
+        print(
+
+            "❌ No market data received. Retrying..."
+
+        )
+
+        return None, None, None
+
+    return ( df_5m, df_15m, df_1h )    
+
+
 
 # ==========================================
 # MAIN LOOP
@@ -121,6 +150,31 @@ while True:
         # ==========================================
 
         df_5m, df_15m, df_1h = fetch_data()
+        
+        if (
+
+              df_5m is None
+
+              or
+
+              df_15m is None
+
+              or
+
+              df_1h is None
+
+            ):
+
+              print(
+
+                  "⏳ Retrying in 60 seconds..."
+
+                )
+
+        time.sleep(60)
+
+        continue
+
 
         # ==========================================
         # ADD INDICATORS
