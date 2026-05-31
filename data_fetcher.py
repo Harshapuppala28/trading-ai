@@ -1,6 +1,8 @@
 import os
 import time
 import traceback
+import datetime
+import pytz
 import pandas as pd  # Imported to handle multi-index checking
 
 import yfinance as yf
@@ -26,6 +28,28 @@ from mongodb_handler import save_pattern
 # ==========================================
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL")
 SLACK_BOT_TOKEN = os.getenv("SLACK_BOT_TOKEN")
+
+# ==========================================
+# WEEKEND CHECKER FOR GOLD (GC=F)
+# ==========================================
+def is_market_open():
+    """
+    Returns True if Gold Markets (GC=F) are open, False if closed.
+    Gold futures trade from Sunday 6:00 PM EST to Friday 5:00 PM EST.
+    """
+    tz = pytz.timezone('US/Eastern')
+    now = datetime.datetime.now(tz)
+    
+    day = now.weekday()  # 0=Monday, 4=Friday, 5=Saturday, 6=Sunday
+    hour = now.hour
+
+    if day == 5:  # Saturday
+        return False
+    if day == 6 and hour < 18:  # Sunday before 6:00 PM EST
+        return False
+    if day == 4 and hour >= 17:  # Friday after 5:00 PM EST
+        return False
+    return True
 
 # ==========================================
 # FETCH DATA
@@ -62,7 +86,7 @@ def fetch_data():
         # ==========================================
         # EMPTY DATA PROTECTION (Moved above return)
         # ==========================================
-        if df_5m.empty or df_15m.empty or df_1h.empty:
+        if df_5m is None or df_5m.empty or df_15m is None or df_15m.empty or df_1h is None or df_1h.empty:
             print("❌ No market data received from Yahoo Finance.")
             return None, None, None
 
@@ -84,13 +108,22 @@ while True:
         print("===================================\n")
 
         # ==========================================
+        # STOP LOOP IF MARKET IS CLOSED (Fixes Rate Limits)
+        # ==========================================
+        if not is_market_open():
+            print("🛑 Gold market is closed for the weekend (EST).")
+            print("⏳ Sleeping for 15 minutes to respect API rate limits...")
+            time.sleep(900)  # Check back in 15 minutes
+            continue
+
+        # ==========================================
         # FETCH DATA
         # ==========================================
         df_5m, df_15m, df_1h = fetch_data()
         
         if df_5m is None or df_15m is None or df_1h is None:
-            print("⏳ Data is empty (Market closed?). Retrying in 5 minutes...")
-            time.sleep(300)  # Sleep 5 mins instead of spamming requests on weekends
+            print("⏳ Data is empty or rate-limited. Retrying in 5 minutes...")
+            time.sleep(300)
             continue
 
         # ==========================================

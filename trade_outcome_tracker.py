@@ -29,7 +29,9 @@ MONGO_URI = os.getenv(
 # ==========================================
 
 client = MongoClient(
-MONGO_URI
+    MONGO_URI, 
+    tls=True, 
+    tlsAllowInvalidCertificates=True
 )
 
 db = client["trading_ai"]
