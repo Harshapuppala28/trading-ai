@@ -1,5 +1,5 @@
 import os
-
+import certifi
 from dotenv import load_dotenv
 
 from pymongo import MongoClient
@@ -25,7 +25,11 @@ MONGO_URI = os.getenv(
 # CONNECT TO MONGODB ATLAS
 # ==========================================
 
-client = MongoClient(MONGO_URI)
+client = MongoClient(
+    MONGO_URI,
+    tls=True,
+    tlsCAFile=certifi.where()
+)
 
 db = client["trading_ai"]
 
